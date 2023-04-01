@@ -1,0 +1,7 @@
+colcon build --packages-select ros2_sbus
+
+ros2 run ros2_sbus ros2_sbus
+
+
+50-usb-serial.rules
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1d6b", ATTRS{idProduct}=="0002", MODE="0777:",ATTRS{serial}="A18866V6"
