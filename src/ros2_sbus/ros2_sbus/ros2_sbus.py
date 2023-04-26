@@ -22,7 +22,7 @@ class SBUSReceiver:
             self._in_frame = False
             self.transport = None
             self._frame = bytearray()
-            self.frames = asyncio.Queue()
+            self.frames = asyncio.Queue(maxsize=1)
 
         def connection_made(self, transport):
             self.transport = transport
@@ -32,8 +32,15 @@ class SBUSReceiver:
                 if self._in_frame:
                     self._frame.append(b)
                     if len(self._frame) == SBUSReceiver.SBUSFramer.SBUS_FRAME_LEN:
-                        decoded_frame = SBUSReceiver.SBUSFrame(self._frame)
-                        # print(decoded_frame)
+                        if self._frame[-1] == SBUSReceiver.SBUSFramer.END_BYTE:
+                            decoded_frame = SBUSReceiver.SBUSFrame(self._frame)
+                            if decoded_frame.get_failsafe_status() == SBUSReceiver.SBUSFrame.SBUS_SIGNAL_OK:
+                                self.nice_state = True
+                            else:
+                                self.nice_state = False
+                        else:
+                            self.nice_state = False
+
                         asyncio.run_coroutine_threadsafe(self.frames.put(decoded_frame), asyncio.get_running_loop())
                         self._in_frame = False
                 else:
@@ -99,6 +106,7 @@ class SBUSReceiver:
     def __init__(self):
         self._transport = None
         self._protocol = None
+        self.nice_state = True
 
     @staticmethod
     async def create(port='/dev/ttyUSB1'):
@@ -136,7 +144,7 @@ class JoyPublisher(Node):
     def __init__(self):
         super().__init__('joy_publisher')
         self.publisher_ = self.create_publisher(Joy, '/joy', 5)
-        
+        self.joy_msg = [0,0,0,0,0]
 
 async def apple(JoyPublisher):
     sbus = await SBUSReceiver.create("/dev/ttyUSB0")
@@ -146,34 +154,36 @@ async def apple(JoyPublisher):
         msg = Joy()
         msg.axes = [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0.]
         # begin = time()
-        joy=[0,0,0,0,0]
+        
         frame = await sbus.get_frame()
         # print(frame)
-        frame_str=str(frame).split(',')
-
-        for i in range(4):
-            if int(frame_str[i])-1023 > 600:
-                joy[i]=1
-            elif int(frame_str[i])-1023 < -600:
-                joy[i]=-1
-            elif int(frame_str[i])<30 & int(frame_str[i])>-30:
-                joy[i]=0
-            else:
-                joy[i]=round((int(frame_str[i])-1023)/600,2)
-            if i in [1,3]:
-                joy[i]=-1*joy[i]
-        if int(frame_str[11])>1500:
-            joy[4]=-1
-        elif int(frame_str[11])<500:
-            joy[4]=+1
-
-        # print(joy[0:5])
         
-        msg.axes[0] = joy[1]
-        msg.axes[1] = joy[0]
-        msg.axes[3] = joy[3]
-        msg.axes[4] = joy[2]
-        msg.axes[7] = joy[4]
+        if sbus.nice_state:
+            frame_str=str(frame).split(',')
+            
+            for i in range(4):
+                if int(frame_str[i])-1023 > 600:
+                    JoyPublisher.joy_msg[i]=1
+                elif int(frame_str[i])-1023 < -600:
+                    JoyPublisher.joy_msg[i]=-1
+                elif int(frame_str[i])<30 & int(frame_str[i])>-30:
+                    JoyPublisher.joy_msg[i]=0
+                else:
+                    JoyPublisher.joy_msg[i]=round((int(frame_str[i])-1023)/600,2)
+                if i in [1,3]:
+                    JoyPublisher.joy_msg[i]=-1*JoyPublisher.joy_msg[i]
+            if int(frame_str[11])>1500:
+                JoyPublisher.joy_msg[4]=-1
+            elif int(frame_str[11])<500:
+                JoyPublisher.joy_msg[4]=+1
+
+        # print(self.joy_msg[0:5])
+        
+        msg.axes[0] = JoyPublisher.joy_msg[1]
+        msg.axes[1] = JoyPublisher.joy_msg[0]
+        msg.axes[3] = JoyPublisher.joy_msg[3]
+        msg.axes[4] = JoyPublisher.joy_msg[2]
+        msg.axes[7] = JoyPublisher.joy_msg[4]
         
         JoyPublisher.publisher_.publish(msg)
 
