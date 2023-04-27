@@ -9,6 +9,7 @@ from sensor_msgs.msg import Joy
 
 # subprocess.Popen(["sudo","chmod","777","/dev/ttyUSB0"], stdout=subprocess.PIPE, shell=True)
 
+count = 0
 
 class SBUSReceiver:
     class SBUSFramer(asyncio.Protocol):
@@ -32,16 +33,14 @@ class SBUSReceiver:
                 if self._in_frame:
                     self._frame.append(b)
                     if len(self._frame) == SBUSReceiver.SBUSFramer.SBUS_FRAME_LEN:
-                        if self._frame[-1] == SBUSReceiver.SBUSFramer.END_BYTE:
-                            decoded_frame = SBUSReceiver.SBUSFrame(self._frame)
-                            if decoded_frame.get_failsafe_status() == SBUSReceiver.SBUSFrame.SBUS_SIGNAL_OK:
-                                self.nice_state = True
-                            else:
-                                self.nice_state = False
+                        decoded_frame = SBUSReceiver.SBUSFrame(self._frame)
+                        if self._frame[-1] == SBUSReceiver.SBUSFramer.END_BYTE and decoded_frame.get_failsafe_status() == SBUSReceiver.SBUSFrame.SBUS_SIGNAL_OK:
+                            self.nice_state = True
+                            asyncio.run_coroutine_threadsafe(self.frames.put(decoded_frame), asyncio.get_running_loop())
                         else:
                             self.nice_state = False
 
-                        asyncio.run_coroutine_threadsafe(self.frames.put(decoded_frame), asyncio.get_running_loop())
+#asyncio.run_coroutine_threadsafe(self.frames.put(decoded_frame), asyncio.get_running_loop())
                         self._in_frame = False
                 else:
                     if b == SBUSReceiver.SBUSFramer.START_BYTE:
@@ -176,6 +175,13 @@ async def apple(JoyPublisher):
                 JoyPublisher.joy_msg[4]=-1
             elif int(frame_str[11])<500:
                 JoyPublisher.joy_msg[4]=+1
+            else:
+                JoyPublisher.joy_msg[4]=0
+
+            if JoyPublisher.joy_msg[4] == 1 or JoyPublisher.joy_msg[4] == -1:
+                global count
+                count += 1
+                print(f"{JoyPublisher.joy_msg[1]}_{JoyPublisher.joy_msg[0]}_{JoyPublisher.joy_msg[3]}_{JoyPublisher.joy_msg[2]}_{JoyPublisher.joy_msg[4]}_count={count}")
 
         # print(self.joy_msg[0:5])
         
